@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Logs Viewer</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" 
+        integrity="sha384-N67KInS7N8L6rreNdfg2vG2WeLp77w+T9Cba7Z0Z8W7aF7XW5N6O3A2F3Y4Z5A6B" 
+        crossorigin="anonymous"></script>
+<script>
+
+
+</script>
+<style>
+ body { font-family: Arial, sans-serif; margin:20px; }
+ #plotDP, #plotMSE, #plotLWD { width:100%; }
+ #plotDP { height:950px; }
+ #plotMSE { height:950px; }
+ #msg { color:#b00020; font-weight:600; margin-top:10px; white-space:pre-line; }
+ #status { color:#0b6a0b; font-weight:600; margin-top:6px; white-space:pre-line; }
+ .controls { margin-bottom: 10px; }
+ label { display:inline-block; margin-right:14px; }
+ .small { font-size:12px; color:#444; }
+ hr { border:none; border-top:1px solid #ddd; margin:10px 0; }
+ #wellList { display:flex; flex-wrap:wrap; gap:10px 16px; margin:8px 0; }
+ .wellItem { display:flex; align-items:center; gap:6px; border:1px solid #ddd; padding:4px 8px; border-radius:6px; background:#fafafa; }
+ .tabs { display:flex; gap:8px; margin:10px 0 8px; }
+ .tabBtn { border:1px solid #bbb; background:#f4f4f4; padding:6px 10px; border-radius:8px; cursor:pointer; font-weight:600; }
+ .tabBtn.active { background:#0b6a0b; border-color:#0b6a0b; color:white; }
+ .tabPanel { display:none; }
+ .tabPanel.active { display:block; }
+ .paramGrid { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; }
+ .paramGrid .block { border:1px solid #ddd; background:#fafafa; border-radius:8px; padding:6px 10px; }
+ .paramGrid .block b { display:inline-block; min-width:62px; }
+ .paramGrid input { width:68px; }
+</style>
+
+
+<script>
+/**
+* ============================================================================
+ * MULTI-WELL DRILLING & PETROPHYSICAL LOGS VIEWER
+ * ============================================================================
+ * An open-source, client-side engineering toolkit for logs visualization 
+ * and seamless multi-well comparison of Log ASCII Standard (.LAS) telemetry datasets.
+ * * DESIGN PHILOSOPHY:
+ * Developed as a lightweight, reactive alternative to heavy enterprise suites 
+ * (e.g., Well Advisor) to solve the historical complexity of cross-well 
+ * analysis. This tool allows engineers to overlay and benchmark multiple well log 
+ * responses simultaneously.
+ * * CORE ARCHITECTURE FEATURES:
+ * - Mechanical Drilling Telemetry Processing (ROP, WOB, Torque, RPM, Flow, SPP)
+ * - Minimum Curvature Trajectory Engine (Real-time MD to TVDRT projection)
+ * - Energy & Efficiency Computations (Advanced MSE, HSE, FMSE, HCR baselines)
+ * - Formation Evaluation (Gamma Ray, Resistivity, Density, Neutron Porosity)
+ * ============================================================================
+ */
+
+// WINDOW_LOAD_DEBUG
+window.addEventListener('load', () => {
+  console.log('[WINDOW LOAD DEBUG] HTML loaded at', new Date().toISOString());
+});
+</script>
+
+
+
+</head>
+<body>
+
+
+
+<h2>Multi-Well Logs Viewer</h2>
+<div class="controls">
+  <input type="file" id="fileInput" multiple accept=".las,.txt" />
+  <div id="status">Status: idle</div>
+</div>
+
+<div class="controls">
+  
+  <label>Depth ref:
+    <select id="depthMode">
+      <option value="MD">MD</option>
+      <option value="TVD">TVDRT</option>
+    </select>
+  </label>
+</div>
+
+<div class="controls">
+  <label id="zMinLabel">View from (m MD): <input id="zMin" type="number" step="10" style="width:90px"></label>
+  <label id="zMaxLabel">to (m MD): <input id="zMax" type="number" step="10" style="width:90px"></label>
+  <span class="small" id="depthRefNote">(interval in MD — switch Depth ref to filter by TVDRT)</span>
+</div>
+<div class="controls">
+  <div class="small"><b>Wells shown</b>:</div>
+  <div id="wellList"></div>
+</div>
+
+<hr>
+
+<div class="controls">
+  <div class="tabs">
+    <button class="tabBtn active" id="tabBtnDP" type="button">Drilling parameters</button>
+    <button class="tabBtn" id="tabBtnMSE" type="button">Energy Metrics</button>
+    <button class="tabBtn" id="tabBtnLWD" type="button">LWD</button>
+  </div>
+</div>
+
+<div id="msg"></div>
+
+<div class="tabPanel active" id="tabDP">
+  <div class="controls">
+    <div class="small"><b>Default X scales</b> (each curve uses its own axis):</div>
+    <div class="paramGrid">
+      <div class="block"><b>ROP</b> <span class="small">m/h</span> min <input id="ropMin" type="number" value="0"> max <input id="ropMax" type="number" value="200"></div>
+      <div class="block"><b>WOB</b> <span class="small">t</span> min <input id="wobMin" type="number" value="0"> max <input id="wobMax" type="number" value="50"></div>
+      <div class="block"><b>TQ</b> <span class="small">t</span> min <input id="tqMin" type="number" value="0"> max <input id="tqMax" type="number" value="50"></div>
+      <div class="block"><b>RPM</b> <span class="small">rpm</span> min <input id="rpmMin" type="number" value="0"> max <input id="rpmMax" type="number" value="200"></div>
+      <div class="block"><b>FLOW</b> <span class="small">lpm</span> min <input id="flowMin" type="number" value="0"> max <input id="flowMax" type="number" value="5000"></div>
+      <div class="block"><b>SPP</b> <span class="small">bar</span> min <input id="sppMin" type="number" value="0"> max <input id="sppMax" type="number" value="500"></div>
+    </div>
+    <div class="small" style="margin-top:6px;">Legend click toggles a parameter for <b>all wells</b>. Only ROP axis is shown to avoid clutter.</div>
+  </div>
+  <div id="plotDP"></div>
+</div>
+
+<div class="tabPanel" id="tabMSE">
+  <div class="controls">
+    <div class="small"><b>X scales</b> (each curve uses its own axis):</div>
+    <div class="paramGrid">
+  <div class="block"><label><input id="incOn" type="checkbox" checked> <b>INC</b></label> min <input id="incMin" type="number" value="0"> max <input id="incMax" type="number" value="120"></div>
+      <div class="block"><b>MSE</b> min <input id="mseMin" type="number" value="0"> max <input id="mseMax" type="number" value="5000"></div>
+      <div class="block"><b>HSE</b> min <input id="hseMin" type="number" value="0"> max <input id="hseMax" type="number" value="1000"></div>
+      <div class="block"><b>FMSE</b> min <input id="fmseMin" type="number" value="0"> max <input id="fmseMax" type="number" value="5000"></div>
+      <div class="block"><b>HCR</b> min <input id="hcrMin" type="number" value="0"> max <input id="hcrMax" type="number" value="3"></div>
+    </div>
+    <div class="small" style="margin-top:6px;">Legend click toggles a curve for <b>all wells</b>. Only MSE axis is shown to avoid clutter.</div>
+  </div>
+  <div id="plotMSE"></div>
+</div>
+<div class="tabPanel" id="tabLWD">
+ <div class="controls">
+  <div class="small"><b>LWD curves &amp; X scales</b> (RES is log-scale; others linear; NEU is reversed):</div>
+  <div class="paramGrid">
+   <div class="block"><label><input id="lwdGrOn" type="checkbox" checked> <b>GR</b></label> min <input id="lwdGrMin" type="number" value="0"> max <input id="lwdGrMax" type="number" value="150"></div>
+   <div class="block"><label><input id="lwdResOn" type="checkbox" checked> <b>RES</b></label> min <input id="lwdResMin" type="number" step="0.01" value="0.2"> max <input id="lwdResMax" type="number" value="2000"> <span class="small">(log)</span></div>
+   <div class="block"><label><input id="lwdDenOn" type="checkbox" checked> <b>DEN</b></label> min <input id="lwdDenMin" type="number" step="0.01" value="1.8"> max <input id="lwdDenMax" type="number" step="0.01" value="2.8"></div>
+   <div class="block"><label><input id="lwdNeuOn" type="checkbox" checked> <b>NEU</b></label> min <input id="lwdNeuMin" type="number" step="0.01" value="0"> max <input id="lwdNeuMax" type="number" step="0.01" value="0.6"> <span class="small">(reversed)</span></div>
+  </div>
+  <div class="small" style="margin-top:6px;">Legend click toggles a curve for <b>all wells</b>. Use the checkboxes to enable/disable curves.</div>
+ </div>
+ <div id="plotLWD"></div>
+</div>
+
+<script>
+// =============================
+// Production toggle
+// =============================
+const DEBUG = false; // set true to print curve-mapping diagnostics in the message area
+// --- Color palette for "ALL WELLS" combined subplots (color by well) ---
+const WELL_COLORS = [
+  '#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b',
+  '#e377c2','#7f7f7f','#bcbd22','#17becf','#393b79','#637939',
+  '#8c6d31','#843c39','#7b4173','#3182bd','#e6550d','#31a354',
+  '#756bb1','#636363'
+];
+function wellColorByIndex(i){ return WELL_COLORS[(i||0)%WELL_COLORS.length]; }
+
+let wells = [];
+let lwdByWell = {}; // wellName -> {name, files:[{source, md, tvd, gr, rt, rhob, nphi}] }
+let surveyByWell = {}; // wellName -> {name, md:[], incDeg:[], aziDeg:[], tvd:[]}
+
+// --- Optional GR from LWD (for DP/MSE integration) ---
+function getLwdGR(wellName, depthModeSel){
+ try{
+  const pack = lwdByWell && lwdByWell[wellName];
+  if(!pack || !pack.files || !pack.files.length) return null;
+  const f = pack.files[0];
+  // Always use survey-interpolated TVD if available (same pipeline as drilling wells)
+  // ensureTvdForObj has already been called on f during file load via applySurveyTVD
+  const hasSurveyTvd = f.tvd && f.tvd.length === f.md.length && !isMostlySame(f.tvd, f.md);
+  const tvdArr = hasSurveyTvd ? f.tvd : f.md;
+  const depthArr = (depthModeSel==='TVD') ? tvdArr : f.md;
+  const grArr = f.gr;
+  if(!depthArr || !grArr || !grArr.length) return null;
+  return {depthArr, mdArr:f.md, tvdArr, grArr, source:(f.source||'')};
+ }catch(e){ return null; }
+}
+// --- INC (from Survey) helper for MSE integration ---
+function getSurveyINC(wellName, depthModeSel){
+  try{
+    const res = resolveSurveyKey(wellName);
+    if(!res) return null;
+    const s = surveyByWell[res.key];
+    if(!s || !s.md || !s.incDeg) return null;
+    const mdArr = s.md;
+    const tvdArr = (s.tvd && s.tvd.length===s.md.length) ? s.tvd : s.md;
+    const depthArr = (depthModeSel==='TVD') ? tvdArr : mdArr;
+    const incArr = s.incDeg;
+    if(!depthArr.length || !incArr.length) return null;
+    return {depthArr, mdArr, tvdArr, incArr, source: 'SURVEY_'+(res.mode||'')};
+  }catch(e){ return null; }
+}
+
+
+let debounceTimer = null;
+const statusEl = document.getElementById('status');
+function setStatus(t){ statusEl.innerText = t; }
+function setMsg(t){ document.getElementById('msg').innerText = t || ''; }
+function appendMsg(t){ document.getElementById('msg').innerText += t; }
+
+// Tabs
+const tabBtnDP = document.getElementById('tabBtnDP');
+const tabDP = document.getElementById('tabDP');
+function showTab(which){
+ const tabBtnMSE = document.getElementById('tabBtnMSE');
+ const tabMSE = document.getElementById('tabMSE');
+ const tabBtnLWD = document.getElementById('tabBtnLWD');
+ const tabLWD = document.getElementById('tabLWD');
+ // reset
+ tabBtnDP.classList.remove('active');
+ tabBtnMSE.classList.remove('active');
+ tabBtnLWD.classList.remove('active');
+ tabDP.classList.remove('active');
+ tabMSE.classList.remove('active');
+ tabLWD.classList.remove('active');
+ if(which==='DP'){
+  tabBtnDP.classList.add('active');
+  tabDP.classList.add('active');
+  try{ Plotly.Plots.resize('plotDP'); }catch(e){}
+ } else if(which==='MSE'){
+  tabBtnMSE.classList.add('active');
+  tabMSE.classList.add('active');
+  // Always recalculate with fresh settings so scale/well/interval changes apply immediately
+  try{
+   const active = wells.filter(w=>w.enabled);
+   if(active.length){ recalcMSETab(active, {depthModeSel: depthMode.value}); }
+  }catch(e){}
+  try{ Plotly.Plots.resize('plotMSE'); }catch(e){}
+ } else {
+  tabBtnLWD.classList.add('active');
+  tabLWD.classList.add('active');
+  try{
+   const active = wells.filter(w=>w.enabled);
+   if(active.length){ recalcLWDTab(active, {depthModeSel: depthMode.value}); }
+  }catch(e){}
+  try{ Plotly.Plots.resize('plotLWD'); }catch(e){}
+ }
+}
+
+tabBtnDP.addEventListener('click', ()=>showTab('DP'));
+
+document.getElementById('tabBtnMSE').addEventListener('click', ()=>showTab('MSE'));
+
+document.getElementById('tabBtnLWD').addEventListener('click', ()=>showTab('LWD'));
+
+// Update "View from/to" labels when depth reference changes
+document.getElementById('depthMode').addEventListener('change', ()=>{
+  const isTVD = document.getElementById('depthMode').value === 'TVD';
+  const ref = isTVD ? 'TVDRT' : 'MD';
+  document.getElementById('zMinLabel').childNodes[0].textContent = `View from (m ${ref}): `;
+  document.getElementById('zMaxLabel').childNodes[0].textContent = `to (m ${ref}): `;
+  document.getElementById('depthRefNote').textContent = `(interval in ${ref})`;
+});
+
+/**
+ * Calculates the cross-sectional area of a standard 12.25" drill bit in square meters.
+ * Used for Mechanical Specific Energy (MSE) and Hydro-Mechanical Specific Energy (HSE) baselines.
+ */
+function bitArea(){
+  const m = 12.25 * 0.0254;
+  return Math.PI * Math.pow(m/2, 2);
+}
+
+function parseLAS(text){
+  const sections={}; let current=null;
+  const lines=text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  for(let raw of lines){
+    const t=raw.trimStart();
+    if(/^~/i.test(t)){
+      let key=t.split(/\s+/)[0].toUpperCase();
+      if(/^~CURVE/i.test(key) || /^~CURVES/i.test(key)) key='~CURVE';
+      if(/^~WELL/i.test(key)) key='~WELL';
+      if(/^~ASCII/i.test(key) || key==='~A') key='~A';
+      sections[key]=[]; current=key; continue;
+    }
+    if(current) sections[current].push(raw);
+  }
+  return sections;
+}
+
+function normalize(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+const PSI_PER_BAR = 14.5037738;
+
+// WS visual smoothing (plotting only)
+function movingAverage(arr, winPts){
+  if(winPts<=1) return arr.slice();
+  const out=new Array(arr.length).fill(null);
+  const h=Math.floor(winPts/2);
+  for(let i=0;i<arr.length;i++){
+    let s=0,c=0;
+    for(let j=i-h;j<=i+h;j++){
+      if(j>=0 && j<arr.length && Number.isFinite(arr[j])){ s+=arr[j]; c++; }
+    }
+    if(c>0) out[i]=s/c;
+  }
+  return out;
+}
+
+const aliases={
+  depth:['dept','deptm','depth','md'],
+  tvd:['tvd','tvds','tvdss','tvdm'],
+  rop:['ropa','rop','ropamhr'],
+  wob:['woba','wob','wobamton'],
+  rpm:['rpmt','rpmm','rpms','rpm'],
+  torque:['tqa','torque','tq','torquemain','torqueabs'],
+  flow:['flow','qtot','flowin','pumpflow','qflow','flowrate','pump1flow','pump2flow','totflow','mfia','mfio','mfi','fipa'],
+  spp:['spp','sppa','pwpa']
+};
+Object.keys(aliases).forEach(k => aliases[k] = aliases[k].map(normalize));
+
+function curveMnemonic(line){ return (line.trim().split(/[ \t]/)[0] || '').trim(); }
+function parseCurveLine(line){
+  const clean = line.replace(/\s*:\s*.*$/, '').trim();
+  const m = clean.match(/^\s*([^\s\.]+)\s*\.\s*([^\s]*)/);
+  if(!m) return {mnemonic: curveMnemonic(line), unit: ''};
+  return {mnemonic: m[1].trim(), unit: (m[2]||'').trim()};
+}
+function buildCurveInfo(curveLines){
+  const infos=[];
+  for(const l of curveLines){
+    const mn=curveMnemonic(l);
+    if(!mn) continue;
+    const p=parseCurveLine(l);
+    infos.push({mnemonic: mn, n: normalize(mn), unitRaw: p.unit});
+  }
+  return infos;
+}
+function unitLooksLikeFlow(u){
+  const uu=normalize(u);
+  return uu.includes('lpm') || uu.includes('lmin') || uu.includes('lpermin');
+}
+function unitLooksLikeBar(u){ return normalize(u).includes('bar'); }
+function unitLooksLikePsi(u){ return normalize(u).includes('psi'); }
+
+function pickByAliases(key, curveInfo){
+  const list=aliases[key] || [];
+  for(const a of list){ const e = curveInfo.find(c=>c.n===a); if(e) return e; }
+  for(const a of list){ const s = curveInfo.find(c=>c.n.startsWith(a)); if(s) return s; }
+  for(const a of list){ const i = curveInfo.find(c=>c.n.includes(a)); if(i) return i; }
+  return null;
+}
+
+function getWellNameFromLAS(las, fallback){
+  // Prefer WELLBORE (sidetrack/lateral) over WELL when present
+  try{
+    if(las && las['~WELL']){
+      let well=null, wellbore=null;
+      for(const raw of las['~WELL']){
+        const t=(raw||'').trim();
+        if(!wellbore && /^WELLBORE\./i.test(t)){
+          const after=t.replace(/^WELLBORE\./i,'').trim();
+          const c=after.indexOf(':');
+          const v=(c>=0?after.slice(0,c):after).trim();
+          if(v) wellbore=v;
+        }
+        if(!well && /^WELL\./i.test(t)){
+          const after=t.replace(/^WELL\./i,'').trim();
+          const c=after.indexOf(':');
+          const v=(c>=0?after.slice(0,c):after).trim();
+          if(v) well=v;
+        }
+      }
+      if(wellbore) return wellbore;
+      if(well) return well;
+    }
+  }catch(e){}
+  return fallback;
+}
+function pickCurve(key, curveInfo){
+  let c = pickByAliases(key, curveInfo);
+  if(c) return c;
+  if(key==='flow'){
+    const byUnit = curveInfo.find(ci=>unitLooksLikeFlow(ci.unitRaw));
+    if(byUnit) return byUnit;
+  }
+  if(key==='spp'){
+    const bar = curveInfo.find(ci=>unitLooksLikeBar(ci.unitRaw));
+    const psi = curveInfo.find(ci=>unitLooksLikePsi(ci.unitRaw));
+    return bar || psi || null;
+  }
+  return null;
+}
+
+// =============================
+// Survey (MD/INC/AZI) -> TVDRT via Minimum Curvature + interpolation/extrapolation
+// =============================
+function normalizeAzimuthDeg(a){
+  if(!Number.isFinite(a)) return a;
+  let v=a%360; if(v<0) v+=360; return v;
+}
+function minCurvCompute(mdArr, incDegArr, aziDegArr){
+  const n=Math.min(mdArr.length, incDegArr.length, aziDegArr.length);
+  if(n<2) return {tvd: mdArr.slice(0,n)};
+  const d2r=Math.PI/180;
+
+  // TVD[0] = 0 means TVD is relative to the first survey station.
+  // For wells where the survey starts from surface (MD[0] ≈ 0), this gives absolute TVDRT.
+  // For sidetracks where the survey starts at the KOP, the TVD will be relative to the KOP,
+  // not absolute from the rotary table. To get absolute TVDRT for sidetracks, load a survey
+  // file that starts from surface (MD=0) for each well.
+  const tvd=new Array(n);
+  tvd[0]=0;
+
+  for(let i=1;i<n;i++){
+    const md1=mdArr[i-1], md2=mdArr[i];
+    const dmd=md2-md1;
+    const inc1=incDegArr[i-1]*d2r, inc2=incDegArr[i]*d2r;
+    const azi1=normalizeAzimuthDeg(aziDegArr[i-1])*d2r;
+    const azi2=normalizeAzimuthDeg(aziDegArr[i])*d2r;
+    if(!Number.isFinite(dmd)||dmd<=0||!Number.isFinite(inc1)||!Number.isFinite(inc2)||!Number.isFinite(azi1)||!Number.isFinite(azi2)){
+      tvd[i]=tvd[i-1];
+      continue;
+    }
+    const cosDL=Math.cos(inc1)*Math.cos(inc2)+Math.sin(inc1)*Math.sin(inc2)*Math.cos(azi2-azi1);
+    const c=Math.max(-1, Math.min(1, cosDL));
+    const dogleg=Math.acos(c);
+    const rf=(dogleg<1e-12)?1:(2/dogleg)*Math.tan(dogleg/2);
+    const dTVD=(dmd/2)*(Math.cos(inc1)+Math.cos(inc2))*rf;
+    tvd[i]=tvd[i-1]+dTVD;
+  }
+  return {tvd};
+}
+function sortUniqueSurvey(pack){
+  const rows=[];
+  for(let i=0;i<pack.md.length;i++){
+    const md=pack.md[i], inc=pack.incDeg[i], azi=pack.aziDeg[i];
+    if(!Number.isFinite(md)||!Number.isFinite(inc)||!Number.isFinite(azi)) continue;
+    rows.push({md, incDeg:inc, aziDeg:normalizeAzimuthDeg(azi)});
+  }
+  rows.sort((a,b)=>a.md-b.md);
+  const u=[];
+  for(const r of rows){
+    if(!u.length || Math.abs(r.md-u[u.length-1].md)>1e-7) u.push(r);
+    else u[u.length-1]=r;
+  }
+  pack.md=u.map(r=>r.md);
+  pack.incDeg=u.map(r=>r.incDeg);
+  pack.aziDeg=u.map(r=>r.aziDeg);
+}
+function finalizeSurveys(){
+  for(const k of Object.keys(surveyByWell)){
+    const p=surveyByWell[k];
+    sortUniqueSurvey(p);
+    p.tvd = (p.md.length>=2) ? minCurvCompute(p.md,p.incDeg,p.aziDeg).tvd : p.md.slice();
+  }
+}
+function interpLinear(xArr,yArr,x){
+  const n=xArr.length;
+  if(n<2 || !Number.isFinite(x)) return null;
+  if(x<xArr[0] || x>xArr[n-1]) return null;
+  let lo=0,hi=n-1;
+  while(hi-lo>1){
+    const mid=(lo+hi)>>1;
+    if(xArr[mid]<=x) lo=mid; else hi=mid;
+  }
+  const x0=xArr[lo], x1=xArr[hi];
+  const y0=yArr[lo], y1=yArr[hi];
+  if(!Number.isFinite(y0)||!Number.isFinite(y1)||x1===x0) return null;
+  const t=(x-x0)/(x1-x0);
+  return y0 + t*(y1-y0);
+}
+function extrapTVDFromEnds(s, md){
+  const n=s.md.length;
+  const md0=s.md[0], md1=s.md[n-1];
+  const tvd0=s.tvd[0], tvd1=s.tvd[n-1];
+  const d2r=Math.PI/180;
+  if(md < md0){
+    const inc=(Number.isFinite(s.incDeg[0])?s.incDeg[0]:0)*d2r;
+    return tvd0 - Math.cos(inc)*(md0-md);
+  }
+  if(md > md1){
+    const inc=(Number.isFinite(s.incDeg[n-1])?s.incDeg[n-1]:0)*d2r;
+    return tvd1 + Math.cos(inc)*(md-md1);
+  }
+  return null;
+}
+function normKeyName(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+function buildSurveyNormIndex(){ const idx={}; for(const k of Object.keys(surveyByWell)) idx[normKeyName(k)]=k; return idx; }
+function resolveSurveyKey(wellName){
+  if(surveyByWell[wellName]) return {key:wellName, mode:'EXACT'};
+  const nidx=buildSurveyNormIndex();
+  const wn=normKeyName(wellName);
+  if(nidx[wn]) return {key:nidx[wn], mode:'NORM_EXACT'};
+  const m=(wellName||'').match(/^([^\s]+)\s+(T\d+|Y\d+|S\d+|L\d+)$/i);
+  if(m){
+    const base=m[1];
+    if(surveyByWell[base]) return {key:base, mode:'BASE'};
+    const bn=normKeyName(base);
+    if(nidx[bn]) return {key:nidx[bn], mode:'BASE_NORM'};
+  }
+  let best=null;
+  for(const nk of Object.keys(nidx)){
+    if(!nk) continue;
+    if(wn.startsWith(nk) || nk.startsWith(wn) || wn.includes(nk)){
+      if(!best || nk.length>best.nk.length) best={nk, key:nidx[nk]};
+    }
+  }
+  if(best) return {key:best.key, mode:'FUZZY'};
+  return null;
+}
+function isMostlySame(a,b){
+  const n=Math.min(a?a.length:0, b?b.length:0);
+  if(n<10) return true;
+  let same=0, fin=0;
+  for(let i=0;i<n;i+=Math.max(1,Math.floor(n/30))){
+    const x=a[i], y=b[i];
+    if(Number.isFinite(x)&&Number.isFinite(y)) { fin++; if(Math.abs(x-y)<1e-6) same++; }
+  }
+  if(fin==0) return true;
+  return (same/fin) > 0.9;
+}
+function fillTvdFromSurveyForce(obj, wellName){
+  const res=resolveSurveyKey(wellName);
+  if(!res) return false;
+  const s=surveyByWell[res.key];
+  if(!s || !s.md || !s.tvd || s.md.length<2) return false;
+  const prev=(obj.tvd && obj.tvd.length===obj.md.length) ? obj.tvd : obj.md;
+  obj.tvd = obj.md.map((md,i)=>{
+    const lin=interpLinear(s.md,s.tvd,md);
+    if(Number.isFinite(lin)) return lin;
+    const ext=extrapTVDFromEnds(s, md);
+    if(Number.isFinite(ext)) return ext;
+    return prev[i];
+  });
+  obj.tvdSource='SURVEY_'+res.mode;
+  return true;
+}
+function ensureTvdForObj(obj, wellName){
+  if(!obj || !obj.md) return false;
+  if(!obj.tvd || obj.tvd.length!==obj.md.length || isMostlySame(obj.tvd,obj.md)){
+    return fillTvdFromSurveyForce(obj, wellName);
+  }
+  return false;
+}
+function applySurveyTVD(drillingByWell, lwdByWell){
+  finalizeSurveys();
+  let drillApplied=0, lwdApplied=0;
+  for(const wn of Object.keys(drillingByWell)) if(ensureTvdForObj(drillingByWell[wn], wn)) drillApplied++;
+  for(const wn of Object.keys(lwdByWell)){
+    const pack=lwdByWell[wn];
+    if(!pack||!pack.files) continue;
+    for(const f of pack.files) if(ensureTvdForObj(f, wn)) lwdApplied++;
+  }
+  return {surveyWells:Object.keys(surveyByWell).length, drillApplied, lwdApplied};
+}
+
+function median(v){ const a=v.filter(Number.isFinite).slice().sort((a,b)=>a-b); if(!a.length) return null; const m=Math.floor(a.length/2); return a.length%2 ? a[m] : (a[m-1]+a[m])/2; }
+function mad(v, med){ const d=v.filter(Number.isFinite).map(x=>Math.abs(x-med)); return median(d); }
+function meanStd(v){ const a=v.filter(Number.isFinite); if(!a.length) return {m:0,s:1}; const m=a.reduce((x,y)=>x+y,0)/a.length; const s=Math.sqrt(a.map(x=>(x-m)**2).reduce((x,y)=>x+y,0)/a.length) || 1; return {m,s}; }
+function globalZ(values){ const g=meanStd(values); return values.map(x=>Number.isFinite(x)?(x-g.m)/g.s:null); }
+function localZ(values, winPts, minPts, robust){
+  const n=values.length, out=new Array(n).fill(null);
+  const g=meanStd(values), h=Math.floor(winPts/2);
+  for(let i=0;i<n;i++){
+    const x=values[i]; if(!Number.isFinite(x)) continue;
+    const seg=values.slice(Math.max(0,i-h),Math.min(n,i+h+1)).filter(Number.isFinite);
+    if(seg.length<minPts){ out[i]=(x-g.m)/g.s; continue; }
+    if(robust){ const m=median(seg), s=1.4826*(mad(seg,m) || 1); out[i]=(x-m)/s; }
+    else{ const ms=meanStd(seg); out[i]=(x-ms.m)/ms.s; }
+  }
+  return out;
+}
+function estimateStep(depth){ const d=[]; for(let i=1;i<depth.length;i++){ const a=depth[i-1], b=depth[i]; if(Number.isFinite(a)&&Number.isFinite(b)){ const dx=Math.abs(b-a); if(dx>0) d.push(dx); } } return median(d) || 0.5; }
+function layoutKey(axisId){ const base = axisId[0]==='x' ? 'xaxis' : 'yaxis'; return axisId.length===1 ? base : base + axisId.slice(1); }
+
+function scheduleRecalc(){
+  if(!wells.length) return;
+  if(debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer=setTimeout(recalculateAndPlot,200);
+}
+
+
+function recalcDrilling(active, wsInfo){
+  const depthModeSel = depthMode.value;
+  const ranges = {
+    rop: [parseFloat(ropMin.value)||0, parseFloat(ropMax.value)||200],
+    wob: [parseFloat(wobMin.value)||0, parseFloat(wobMax.value)||50],
+    tq:  [parseFloat(tqMin.value)||0,  parseFloat(tqMax.value)||50],
+    rpm: [parseFloat(rpmMin.value)||0, parseFloat(rpmMax.value)||200],
+    flow:[parseFloat(flowMin.value)||0,parseFloat(flowMax.value)||5000],
+    spp: [parseFloat(sppMin.value)||0, parseFloat(sppMax.value)||500]
+  };
+
+  let yMin=Infinity, yMax=-Infinity;
+  const perWell=[];
+  for(const w of active){
+    const depthArr=(depthModeSel==='TVD')?w.tvd:w.md;
+    const useIdx=getDepthIndices(depthArr);
+    useIdx.forEach(i=>{ const z=depthArr[i]; if(Number.isFinite(z)){ yMin=Math.min(yMin,z); yMax=Math.max(yMax,z);} });
+    perWell.push({w, depthArr, useIdx});
+  }
+
+  const zmin=parseFloat(zMin.value);
+  const zmax=parseFloat(zMax.value);
+  const yRange=(Number.isFinite(zmin)&&Number.isFinite(zmax)&&zmin<zmax)?[zmax,zmin]:[yMax,yMin];
+
+  const nW=perWell.length;
+  const nCols=nW+1; // +1 combined column
+  const traces=[];
+  const layout={
+    title:'',
+    grid:{rows:1, columns:nCols, pattern:'independent'},
+    showlegend:true,
+    legend:{orientation:'h', y:1.25, x:0, font:{size:11}, groupclick:'togglegroup'},
+    margin:{l:90,r:25,t:80,b:45},
+    annotations:[]
+  };
+
+  const params=[
+    {key:'rop', label:'ROP (m/h)',  color:'#1f77b4', range:ranges.rop},
+    {key:'wob', label:'WOB (t)',    color:'#2ca02c', range:ranges.wob},
+    {key:'tq',  label:'TQ (t)',     color:'#ff7f0e', range:ranges.tq},
+    {key:'rpm', label:'RPM',        color:'#9467bd', range:ranges.rpm},
+    {key:'flow',label:'FLOW (lpm)', color:'#17becf', range:ranges.flow},
+    {key:'spp', label:'SPP (bar)',  color:'#d62728', range:ranges.spp}
+  ];
+
+  function baseAxisX(col){ return (col===1)?'x':('x'+String(col)); }
+  function baseAxisY(col){ return (col===1)?'y':('y'+String(col)); }
+
+  // Reserve base axes 1..nCols, overlays start after that
+  let nextXNum = nCols + 1;
+
+  // ---- Per-well subplots ----
+  for(let wi=0; wi<nW; wi++){
+    const {w, depthArr, useIdx} = perWell[wi];
+    const col = wi+1;
+    const xBase = baseAxisX(col);
+    const yBase = baseAxisY(col);
+
+    layout[layoutKey(yBase)] = { range:yRange, autorange:false, showgrid:false, zeroline:false, showticklabels:(col===1), ticks:(col===1?'outside':''),
+      title: col===1 ? {text: depthModeSel==='TVD' ? 'TVDRT (m)' : 'MD (m)', font:{size:11}} : undefined };
+    layout[layoutKey(xBase)] = { range:ranges.rop, showgrid:true, zeroline:false, showticklabels:true, ticks:'outside', title:{text:'', font:{size:11}} };
+
+    layout.annotations.push({ text:w.name, xref:xBase+' domain', yref:'paper', x:0.5, y:1.08, showarrow:false, font:{size:12,color:'#111'} });
+
+    const axisFor = { rop: xBase };
+    for(let pi=1; pi<params.length; pi++){
+      const p=params[pi];
+      const xId = 'x' + String(nextXNum++);
+      axisFor[p.key] = xId;
+      layout[layoutKey(xId)] = { overlaying:xBase, anchor:yBase, range:p.range, showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top' };
+    }
+
+    for(const p of params){
+      const series = (p.key==='rop') ? w.rop
+        : (p.key==='wob') ? w.wob
+        : (p.key==='tq')  ? w.tor
+        : (p.key==='rpm') ? w.rpm
+        : (p.key==='flow')? w.flow
+        : (p.key==='spp') ? w.sppBar
+        : null;
+      if(!series) continue;
+      const x=[], y=[], cd=[];
+      for(const i of useIdx){
+        const z=depthArr[i];
+        const v=series[i];
+        if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+        x.push(v); y.push(z);
+        cd.push([w.md[i], (w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);
+      }
+      traces.push({
+        x, y,
+        mode:'lines',
+        line:{width:1.2, color:p.color},
+        name:p.label,
+        legendgroup:p.key,
+        showlegend:(wi===0),
+        xaxis: axisFor[p.key],
+        yaxis: yBase,
+        customdata: cd,
+        hovertemplate: w.name + '<br>' + p.label + ': %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+      });
+    }
+
+  }
+
+  // ---- Combined ALL-WELLS subplot (same row, last column) ----
+  const colC = nCols;
+  const xBaseC = baseAxisX(colC);
+  const yBaseC = baseAxisY(colC);
+
+  layout[layoutKey(yBaseC)] = { range:yRange, autorange:false, showgrid:false, zeroline:false, showticklabels:false };
+  layout[layoutKey(xBaseC)] = { range:ranges.rop, showgrid:true, zeroline:false, showticklabels:true, ticks:'outside', title:{text:'', font:{size:11}} };
+  layout.annotations.push({ text:'ALL WELLS', xref:xBaseC+' domain', yref:'paper', x:0.5, y:1.08, showarrow:false, font:{size:12,color:'#111'} });
+
+  const axisForC = { rop: xBaseC };
+  for(let pi=1; pi<params.length; pi++){
+    const p=params[pi];
+    const xId='x'+String(nextXNum++);
+    axisForC[p.key]=xId;
+    layout[layoutKey(xId)] = { overlaying:xBaseC, anchor:yBaseC, range:p.range, showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top' };
+  }
+
+  // Add all wells traces: COLOR BY WELL (only in this combined subplot)
+  perWell.forEach((pw, wi)=>{
+    const w=pw.w;
+    const depthArr=pw.depthArr;
+    const useIdx=pw.useIdx;
+    const cWell = wellColorByIndex(wi);
+
+    for(const p of params){
+      const series = (p.key==='rop') ? w.rop
+        : (p.key==='wob') ? w.wob
+        : (p.key==='tq')  ? w.tor
+        : (p.key==='rpm') ? w.rpm
+        : (p.key==='flow')? w.flow
+        : (p.key==='spp') ? w.sppBar
+        : null;
+      if(!series) continue;
+      const x=[], y=[], cd=[];
+      for(const i of useIdx){
+        const z=depthArr[i];
+        const v=series[i];
+        if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+        x.push(v); y.push(z);
+        cd.push([w.md[i], (w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);
+      }
+      if(!x.length) continue;
+      traces.push({
+        x, y,
+        mode:'lines',
+        line:{width:1.0, color:cWell},
+        opacity:0.70,
+        name:p.label,
+        legendgroup:p.key,
+        showlegend:false,
+        xaxis: axisForC[p.key],
+        yaxis: yBaseC,
+        customdata: cd,
+        hovertemplate: w.name + '<br>' + p.label + ': %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+      });
+    }
+
+  });
+
+  Plotly.newPlot('plotDP', traces, layout, {responsive:true});
+}
+
+function recalcMSETab(active, wsInfo){
+  const depthModeSel = (wsInfo && wsInfo.depthModeSel) ? wsInfo.depthModeSel : depthMode.value;
+  const A = bitArea();
+  const mseMinEl = document.getElementById('mseMin');
+  const mseMaxEl = document.getElementById('mseMax');
+  const hseMinEl = document.getElementById('hseMin');
+  const hseMaxEl = document.getElementById('hseMax');
+  const fmseMinEl = document.getElementById('fmseMin');
+  const fmseMaxEl = document.getElementById('fmseMax');
+  const hcrMinEl = document.getElementById('hcrMin');
+  const hcrMaxEl = document.getElementById('hcrMax');
+  if(!mseMinEl || !mseMaxEl || !hseMinEl || !hseMaxEl || !fmseMinEl || !fmseMaxEl || !hcrMinEl || !hcrMaxEl) return;
+
+  const ranges = {
+    mse:  [parseFloat(mseMinEl.value)||0,  parseFloat(mseMaxEl.value)||5000],
+    hse:  [parseFloat(hseMinEl.value)||0,  parseFloat(hseMaxEl.value)||1000],
+    fmse: [parseFloat(fmseMinEl.value)||0, parseFloat(fmseMaxEl.value)||5000],
+    hcr:  [parseFloat(hcrMinEl.value)||0,  parseFloat(hcrMaxEl.value)||3]
+  };
+
+  let yMin=Infinity, yMax=-Infinity;
+  const perWell=[];
+  for(const w of active){
+    const depthArr=(depthModeSel==='TVD')?w.tvd:w.md;
+    const useIdx=getDepthIndices(depthArr);
+    useIdx.forEach(i=>{ const z=depthArr[i]; if(Number.isFinite(z)){ yMin=Math.min(yMin,z); yMax=Math.max(yMax,z);} });
+    const MSE = w.wob.map((wo,i)=>(wo/A)+(120*w.rpm[i]*w.tor[i])/(A*Math.max(w.rop[i],1e-6)));
+    const HSE = w.sppPsi.map(sp=>(sp>0?(sp/A)*0.0073:0));
+    const FMSE = MSE.map((v,i,a)=>(i<2 || i>a.length-3)?v:(a[i-2]+a[i-1]+a[i]+a[i+1]+a[i+2])/5);
+    const HCR = MSE.map((v,i)=> FMSE[i] / Math.max(v,1e-6));
+    perWell.push({w, depthArr, useIdx, MSE, HSE, FMSE, HCR});
+  }
+
+  const zmin=parseFloat(zMin.value);
+  const zmax=parseFloat(zMax.value);
+  const yRange=(Number.isFinite(zmin)&&Number.isFinite(zmax)&&zmin<zmax)?[zmax,zmin]:[yMax,yMin];
+
+  const nW=perWell.length;
+  const nCols=nW+1;
+  const traces=[];
+  const layout={
+    title:'',
+    grid:{rows:1, columns:nCols, pattern:'independent'},
+    showlegend:true,
+    legend:{orientation:'h', y:1.25, x:0, font:{size:11}, groupclick:'togglegroup'},
+    margin:{l:90,r:25,t:80,b:45},
+    annotations:[]
+  };
+
+  function baseAxisX(col){ return (col===1)?'x':('x'+String(col)); }
+  function baseAxisY(col){ return (col===1)?'y':('y'+String(col)); }
+
+  const curves=[
+    {key:'mse', label:'MSE',  color:'#1f77b4', range:ranges.mse},
+    {key:'hse', label:'HSE',  color:'#d62728', range:ranges.hse},
+    {key:'fmse',label:'FMSE', color:'#2ca02c', range:ranges.fmse},
+    {key:'hcr', label:'HCR',  color:'#9467bd', range:ranges.hcr}
+  ];
+
+  const incEnabled = (document.getElementById('incOn') ? document.getElementById('incOn').checked : false);
+
+  let nextXNum = nCols + 1;
+
+  // ---- Per-well subplots ----
+  for(let wi=0; wi<nW; wi++){
+    const pw = perWell[wi];
+    const w = pw.w;
+    const depthArr=pw.depthArr;
+    const useIdx=pw.useIdx;
+
+    const col=wi+1;
+    const xBase=baseAxisX(col);
+    const yBase=baseAxisY(col);
+
+    layout[layoutKey(yBase)] = { range:yRange, autorange:false, showgrid:false, zeroline:false, showticklabels:(col===1), ticks:(col===1?'outside':''),
+      title: col===1 ? {text: depthModeSel==='TVD' ? 'TVDRT (m)' : 'MD (m)', font:{size:11}} : undefined };
+    layout[layoutKey(xBase)] = { range:ranges.mse, showgrid:true, zeroline:false, showticklabels:true, ticks:'outside' };
+    layout.annotations.push({ text:w.name, xref:xBase+' domain', yref:'paper', x:0.5, y:1.08, showarrow:false, font:{size:12,color:'#111'} });
+
+    const axisFor={ mse:xBase };
+    for(let ci=1; ci<curves.length; ci++){
+      const c=curves[ci];
+      const xId='x'+String(nextXNum++);
+      axisFor[c.key]=xId;
+      layout[layoutKey(xId)]={ overlaying:xBase, anchor:yBase, range:c.range, showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top', type:'linear', autorange:false };
+    }
+
+    const seriesMap = { mse:pw.MSE, hse:pw.HSE, fmse:pw.FMSE, hcr:pw.HCR };
+    for(const c of curves){
+      const series=seriesMap[c.key];
+      const x=[], y=[], cd=[];
+      for(const i of useIdx){
+        const z=depthArr[i];
+        const v=series[i];
+        if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+        x.push(v); y.push(z);
+        cd.push([w.md[i], (w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);
+      }
+      traces.push({
+        x,y,
+        mode:'lines',
+        line:{width:1.2, color:c.color},
+        name:c.label,
+        legendgroup:c.key,
+        showlegend:(wi===0),
+        xaxis: axisFor[c.key],
+        yaxis: yBase,
+        customdata: cd,
+        hovertemplate: w.name + '<br>' + c.label + ': %{x:.3f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+      });
+    }
+
+    // --- GR overlay (from LWD) on same subplot ---
+    {
+      const grPack = getLwdGR(w.name, depthModeSel);
+      if(grPack){
+        const grIdx = getDepthIndices(grPack.depthArr);
+        const gx=[], gy=[], gcd=[];
+        for(const i of grIdx){
+          const z=grPack.depthArr[i];
+          const v=grPack.grArr[i];
+          if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+          gx.push(v); gy.push(z); gcd.push([grPack.mdArr[i], grPack.tvdArr[i]]);
+        }
+        if(gx.length){
+          const xIdGR='x'+String(nextXNum++);
+          layout[layoutKey(xIdGR)] = { overlaying:xBase, anchor:yBase,
+            range:[parseFloat(document.getElementById('lwdGrMin')?.value)||0, parseFloat(document.getElementById('lwdGrMax')?.value)||150],
+            showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top', type:'linear', autorange:false };
+          traces.push({ x:gx, y:gy, mode:'lines', line:{width:1.2, color:'#2ca02c'},
+            name:'GR', legendgroup:'gr', showlegend:(wi===0), xaxis:xIdGR, yaxis:yBase,
+            customdata:gcd,
+            hovertemplate: w.name + '<br>GR: %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+          });
+        }
+      }
+    }
+
+  }
+
+  // ---- Combined ALL-WELLS subplot (last column) ----
+  const colC=nCols;
+  const xBaseC=baseAxisX(colC);
+  const yBaseC=baseAxisY(colC);
+
+  layout[layoutKey(yBaseC)] = { range:yRange, autorange:false, showgrid:false, zeroline:false, showticklabels:false };
+  layout[layoutKey(xBaseC)] = { range:ranges.mse, showgrid:true, zeroline:false, showticklabels:true, ticks:'outside' };
+  layout.annotations.push({ text:'ALL WELLS', xref:xBaseC+' domain', yref:'paper', x:0.5, y:1.08, showarrow:false, font:{size:12,color:'#111'} });
+
+  const axisForC={ mse:xBaseC };
+  for(let ci=1; ci<curves.length; ci++){
+    const c=curves[ci];
+    const xId='x'+String(nextXNum++);
+    axisForC[c.key]=xId;
+    layout[layoutKey(xId)]={ overlaying:xBaseC, anchor:yBaseC, range:c.range, showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top', type:'linear', autorange:false };
+  }
+
+  // One shared GR axis and INC axis for combined subplot, COLOR BY WELL on traces
+  let xIdGRC=null, xIdINC=null;
+  {
+    const grAnyAvail = perWell.some(pw => getLwdGR(pw.w.name, depthModeSel) !== null);
+    if(grAnyAvail){
+      xIdGRC='x'+String(nextXNum++);
+      layout[layoutKey(xIdGRC)] = { overlaying:xBaseC, anchor:yBaseC,
+        range:[parseFloat(document.getElementById('lwdGrMin')?.value)||0, parseFloat(document.getElementById('lwdGrMax')?.value)||150],
+        showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top', type:'linear', autorange:false };
+    }
+  }
+  if(incEnabled){
+    xIdINC='x'+String(nextXNum++);
+    layout[layoutKey(xIdINC)] = { overlaying:xBaseC, anchor:yBaseC,
+      range:[parseFloat(document.getElementById('incMin')?.value)||0, parseFloat(document.getElementById('incMax')?.value)||120],
+      showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top', type:'linear', autorange:false };
+  }
+
+  perWell.forEach((pw, wi)=>{
+    const w=pw.w;
+    const depthArr=pw.depthArr;
+    const useIdx=pw.useIdx;
+    const cWell=wellColorByIndex(wi);
+    const seriesMap = { mse:pw.MSE, hse:pw.HSE, fmse:pw.FMSE, hcr:pw.HCR };
+
+    for(const c of curves){
+      const series=seriesMap[c.key];
+      const x=[], y=[], cd=[];
+      for(const i of useIdx){
+        const z=depthArr[i];
+        const v=series[i];
+        if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+        x.push(v); y.push(z); cd.push([w.md[i], (w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);
+      }
+      if(!x.length) continue;
+      traces.push({
+        x,y,
+        mode:'lines',
+        line:{width:1.0, color:cWell},
+        opacity:0.70,
+        name:c.label,
+        legendgroup:c.key,
+        showlegend:false,
+        xaxis: axisForC[c.key],
+        yaxis: yBaseC,
+        customdata: cd,
+        hovertemplate: w.name + '<br>' + c.label + ': %{x:.3f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+      });
+    }
+
+    // GR in combined (color by well)
+    if(xIdGRC){
+      const grPack=getLwdGR(w.name, depthModeSel);
+      if(grPack){
+        const grIdx=getDepthIndices(grPack.depthArr);
+        const gx=[], gy=[], gcd=[];
+        for(const i of grIdx){
+          const z=grPack.depthArr[i];
+          const v=grPack.grArr[i];
+          if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+          gx.push(v); gy.push(z); gcd.push([grPack.mdArr[i], grPack.tvdArr[i]]);
+        }
+        if(gx.length){
+          traces.push({ x:gx, y:gy, mode:'lines', line:{width:1.0, color:cWell}, opacity:0.70,
+            name:'GR', legendgroup:'gr', showlegend:false, xaxis:xIdGRC, yaxis:yBaseC,
+            customdata:gcd,
+            hovertemplate: w.name + '<br>GR: %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+          });
+        }
+      }
+    }
+
+    if(incEnabled && xIdINC){
+      const incPack=getSurveyINC(w.name, depthModeSel);
+      if(incPack){
+        const incIdx=getDepthIndices(incPack.depthArr);
+        const ix=[], iy=[], icd=[];
+        for(const i of incIdx){
+          const z=incPack.depthArr[i];
+          const v=incPack.incArr[i];
+          if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+          ix.push(v); iy.push(z); icd.push([incPack.mdArr[i], incPack.tvdArr[i]]);
+        }
+        if(ix.length){
+          traces.push({ x:ix, y:iy, mode:'lines', line:{width:1.0, color:cWell}, opacity:0.70,
+            name:'INC', legendgroup:'inc', showlegend:false, xaxis:xIdINC, yaxis:yBaseC,
+            customdata:icd,
+            hovertemplate: w.name + '<br>INC: %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+          });
+        }
+      }
+    }
+  });
+
+  // Use Plotly.react to preserve legend visibility state across recalcs
+  const plotDiv = document.getElementById('plotMSE');
+  const prevData = (plotDiv && plotDiv.data) ? plotDiv.data : null;
+  // Build a visibility map from previous traces by (legendgroup, name, well-index implied by showlegend)
+  const visMap = {};
+  if(prevData){
+    for(const t of prevData){
+      const key = (t.legendgroup||'') + '|' + (t.name||'') + '|' + (t.showlegend?'1':'0');
+      if(t.visible === 'legendonly' || t.visible === false) visMap[key] = t.visible;
+    }
+  }
+  // Apply stored visibility to new traces
+  for(const t of traces){
+    const key = (t.legendgroup||'') + '|' + (t.name||'') + '|' + (t.showlegend?'1':'0');
+    if(visMap[key] !== undefined) t.visible = visMap[key];
+  }
+
+  Plotly.react('plotMSE', traces, layout, {responsive:true});
+}
+
+;[
+  'depthMode','zMin','zMax',
+  'ropMin','ropMax','wobMin','wobMax','tqMin','tqMax','rpmMin','rpmMax','flowMin','flowMax','sppMin','sppMax',
+  'mseMin','mseMax','hseMin','hseMax','fmseMin','fmseMax','hcrMin','hcrMax','incMin','incMax','incOn',
+  'lwdGrOn','lwdResOn','lwdDenOn','lwdNeuOn',
+  'lwdGrMin','lwdGrMax','lwdResMin','lwdResMax','lwdDenMin','lwdDenMax','lwdNeuMin','lwdNeuMax'
+].forEach(id=>{
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('input', scheduleRecalc);
+  el.addEventListener('change', scheduleRecalc);
+});
+
+function renderWellList(){
+  const box=document.getElementById('wellList');
+  box.innerHTML='';
+  wells.forEach(w=>{
+    const d=document.createElement('div');
+    d.className='wellItem';
+    const cb=document.createElement('input');
+    cb.type='checkbox';
+    cb.checked=w.enabled;
+    cb.onchange=()=>{ w.enabled=cb.checked; scheduleRecalc(); };
+    const sp=document.createElement('span');
+    sp.textContent=w.name;
+    d.appendChild(cb); d.appendChild(sp);
+    box.appendChild(d);
+  });
+}
+
+function addHordaShapesForAxis(axisX, xRange, shapes){
+  const x0=xRange[0], x1=xRange[1];
+  shapes.push(
+    {type:'rect', xref:axisX, yref:'paper', x0:x0, x1:0, y0:0, y1:1, fillcolor:'rgba(0,160,0,0.08)', line:{width:0}, layer:'below'},
+    {type:'rect', xref:axisX, yref:'paper', x0:0, x1:0.5, y0:0, y1:1, fillcolor:'rgba(255,215,0,0.08)', line:{width:0}, layer:'below'},
+    {type:'rect', xref:axisX, yref:'paper', x0:0.5, x1:1.0, y0:0, y1:1, fillcolor:'rgba(255,140,0,0.10)', line:{width:0}, layer:'below'},
+    {type:'rect', xref:axisX, yref:'paper', x0:1.0, x1:2.0, y0:0, y1:1, fillcolor:'rgba(255,0,0,0.08)', line:{width:0}, layer:'below'},
+    {type:'rect', xref:axisX, yref:'paper', x0:2.0, x1:x1, y0:0, y1:1, fillcolor:'rgba(128,0,0,0.12)', line:{width:0}, layer:'below'}
+  );
+  shapes.push(
+    {type:'line', xref:axisX, yref:'paper', x0:0, x1:0, y0:0, y1:1, line:{color:'#008000', width:1.5}},
+    {type:'line', xref:axisX, yref:'paper', x0:0.5, x1:0.5, y0:0, y1:1, line:{color:'#FFB000', width:1, dash:'dot'}},
+    {type:'line', xref:axisX, yref:'paper', x0:1.0, x1:1.0, y0:0, y1:1, line:{color:'#FF7F0E', width:1.2, dash:'dash'}},
+    {type:'line', xref:axisX, yref:'paper', x0:2.0, x1:2.0, y0:0, y1:1, line:{color:'#B00020', width:1.5}}
+  );
+}
+
+function fitSlopeK(pairs){
+  if(pairs.length < 60) return 0;
+  const wsSorted = pairs.map(p=>p.ws).slice().sort((a,b)=>a-b);
+  const lo = wsSorted[Math.floor(0.05*wsSorted.length)];
+  const hi = wsSorted[Math.floor(0.95*wsSorted.length)];
+  const filt = pairs.filter(p=>p.ws>=lo && p.ws<=hi);
+  if(filt.length < 30) return 0;
+  let n=filt.length;
+  let sumx=0,sumy=0,sumxx=0,sumxy=0;
+  for(const p of filt){ sumx+=p.lr; sumy+=p.ws; sumxx+=p.lr*p.lr; sumxy+=p.lr*p.ws; }
+  const denom = (n*sumxx - sumx*sumx);
+  if(Math.abs(denom) < 1e-12) return 0;
+  return (n*sumxy - sumx*sumy)/denom;
+}
+
+fileInput.addEventListener('change', async ()=>{
+ const files=[...fileInput.files];
+ if(!files.length){ wells=[]; lwdByWell={}; surveyByWell={}; setMsg(''); setStatus('Status: idle'); Plotly.purge('plotDP'); Plotly.purge('plotMSE'); Plotly.purge('plotLWD'); return; }
+ wells=[]; lwdByWell={}; surveyByWell={}; setMsg(''); setStatus('Status: loading files');
+ const drillingByWell = {}; // wellName -> drilling object
+
+ // --- MERGE SUPPORT: allow multiple drilling LAS per well (different depth ranges) ---
+ function _finiteCount(rec){
+   let c=0;
+   const keys=['tvd','rop','wob','rpm','tor','flow','sppPsi','sppBar'];
+   for(const k of keys){
+     const v=rec[k];
+     if(v===null || v===undefined) continue;
+     if(Number.isFinite(v)) c++;
+   }
+   return c;
+ }
+ function mergeDrilling(a,b){
+   if(!a) return b;
+   if(!b) return a;
+   const recs=[];
+   const pushFrom=(obj)=>{
+     const n=Math.min(obj.md.length,obj.rop.length,obj.wob.length,obj.rpm.length,obj.tor.length);
+     for(let i=0;i<n;i++){
+       const md=obj.md[i];
+       if(!Number.isFinite(md)) continue;
+       recs.push({
+         md,
+         tvd: (obj.tvd && obj.tvd.length>i) ? obj.tvd[i] : md,
+         rop: obj.rop[i],
+         wob: obj.wob[i],
+         rpm: obj.rpm[i],
+         tor: obj.tor[i],
+         flow: (obj.flow && obj.flow.length>i) ? obj.flow[i] : null,
+         sppPsi: (obj.sppPsi && obj.sppPsi.length>i) ? obj.sppPsi[i] : null,
+         sppBar: (obj.sppBar && obj.sppBar.length>i) ? obj.sppBar[i] : (Number.isFinite(obj.sppPsi?.[i]) ? (obj.sppPsi[i]/PSI_PER_BAR) : null)
+       });
+     }
+   };
+   pushFrom(a); pushFrom(b);
+   recs.sort((r1,r2)=>r1.md-r2.md);
+   const out=[];
+   const tol=1e-6;
+   for(const r of recs){
+     const last=out[out.length-1];
+     if(last && Math.abs(r.md-last.md) < tol){
+       const cNew=_finiteCount(r), cOld=_finiteCount(last);
+       if(cNew>cOld){
+         // replace but keep md
+         out[out.length-1]=Object.assign({}, last, r, {md:last.md});
+       } else {
+         // fill missing values in last
+         for(const k of ['tvd','rop','wob','rpm','tor','flow','sppPsi','sppBar']){
+           const lv=last[k], rv=r[k];
+           const lOK = (lv===null || lv===undefined) ? false : (Number.isFinite(lv) || typeof lv==='number');
+           const rOK = (rv===null || rv===undefined) ? false : (Number.isFinite(rv) || typeof rv==='number');
+           if((!lOK) && rOK) last[k]=rv;
+         }
+       }
+     } else {
+       out.push(r);
+     }
+   }
+   const name = (a.name || b.name);
+   const merged={ name, enabled: (a.enabled!==undefined ? a.enabled : (b.enabled!==undefined ? b.enabled : true)), md:[], tvd:[], rop:[], wob:[], rpm:[], tor:[], flow:[], sppPsi:[], sppBar:[] };
+   for(const r of out){
+     merged.md.push(r.md);
+     merged.tvd.push(Number.isFinite(r.tvd) ? r.tvd : r.md);
+     merged.rop.push(Number.isFinite(r.rop) ? Math.max(r.rop,0) : 0);
+     merged.wob.push(Number.isFinite(r.wob) ? r.wob : 0);
+     merged.rpm.push(Number.isFinite(r.rpm) ? Math.max(r.rpm,0) : 120);
+     merged.tor.push(Number.isFinite(r.tor) ? Math.max(r.tor,0) : 1);
+     merged.flow.push(Number.isFinite(r.flow) ? Math.max(r.flow,0) : null);
+     merged.sppPsi.push(Number.isFinite(r.sppPsi) ? Math.max(r.sppPsi,0) : null);
+     merged.sppBar.push(Number.isFinite(r.sppBar) ? Math.max(r.sppBar,0) : (Number.isFinite(r.sppPsi) ? (Math.max(r.sppPsi,0)/PSI_PER_BAR) : null));
+   }
+   merged.tvdSource = a.tvdSource || b.tvdSource;
+   return merged;
+ }
+ // --- END MERGE SUPPORT ---
+
+
+
+ for(const file of files){
+  try{
+   const raw=await file.text();
+   const las=parseLAS(raw);
+   if(!las['~CURVE'] || !las['~A']){ if(DEBUG) appendMsg(`LAS inválido en ${file.name}\n`); continue; }
+
+   const curveLines=las['~CURVE'].filter(l=>l.trim() && !/^#/i.test(l));
+   const curveNames=curveLines.map(curveMnemonic);
+   const idx={}; curveNames.forEach((c,i)=>idx[c]=i);
+   const curveInfo = buildCurveInfo(curveLines);
+
+   const depthPick = pickCurve('depth', curveInfo);
+   const tvdPick = pickCurve('tvd', curveInfo);
+   const ropPick = pickCurve('rop', curveInfo);
+   const wobPick = pickCurve('wob', curveInfo);
+   const rpmPick = pickCurve('rpm', curveInfo);
+   const tqPick  = pickCurve('torque', curveInfo);
+   const flowPick = pickCurve('flow', curveInfo);
+   const sppPick  = pickCurve('spp', curveInfo);
+
+   const depthC = depthPick ? depthPick.mnemonic : null;
+   const tvdC   = tvdPick ? tvdPick.mnemonic : null;
+   const ropC   = ropPick ? ropPick.mnemonic : null;
+   const wobC   = wobPick ? wobPick.mnemonic : null;
+
+   function pickAny(keys){
+     const kn = keys.map(normalize);
+     for(const k of kn){ const e = curveInfo.find(ci=>ci.n===k); if(e) return e; }
+     for(const k of kn){ const e = curveInfo.find(ci=>ci.n.startsWith(k)); if(e) return e; }
+     for(const k of kn){ const e = curveInfo.find(ci=>ci.n.includes(k)); if(e) return e; }
+     return null;
+   }
+   const grPick = pickAny(['gr','gamma','gamm','bacgc','icgrc','cgr','grc']);
+   const rtPick = pickAny(['rt','res','resd','rdep','ild','lld','rsh32','rsh48','rsm48']);
+   const rhobPick = pickAny(['rhob','den','alcd','alcdlc']);
+   const nphiPick = pickAny(['nphi','neu','tnpl','tnph']);
+ const incPick = pickAny(['inc','inca','incl','inclination','incdeg','incldeg','devi','deviation','devdeg']);
+ const aziPick = pickAny(['azi','azia','azim','azimuth','azideg','dir','direction','hdg','heading']);
+
+   const hasDrilling = !!(depthC && ropC && wobC);
+   const hasLWD = !!(depthC && (grPick || rtPick || rhobPick || nphiPick)) && !hasDrilling;
+ const hasSurvey = !!(depthC && incPick && aziPick);
+
+   const rows=las['~A']
+     .filter(l=>l.trim() && !/^#/i.test(l))
+     .map(l=>l.trim().split(/[\s,]+/).map(Number));
+
+   const fallbackName=file.name.replace(/\.(las|txt)$/i,'');
+   const wellName=getWellNameFromLAS(las, fallbackName);
+ // PRIORITY: survey (MD+INC+AZI)
+ if(hasSurvey){
+  const incC = incPick ? incPick.mnemonic : null;
+  const aziC = aziPick ? aziPick.mnemonic : null;
+  if(incC && aziC && (incC in idx) && (aziC in idx)) {
+    if(!surveyByWell[wellName]) surveyByWell[wellName] = { name: wellName, md: [], incDeg: [], aziDeg: [] };
+    for(const r of rows){
+      const d = r[idx[depthC]];
+      const ic = r[idx[incC]];
+      const az = r[idx[aziC]];
+      if(!Number.isFinite(d) || !Number.isFinite(ic) || !Number.isFinite(az)) continue;
+      surveyByWell[wellName].md.push(d);
+      surveyByWell[wellName].incDeg.push(ic);
+      surveyByWell[wellName].aziDeg.push(az);
+    }
+    continue;
+  }
+ }
+
+   if(hasDrilling){
+     const md=[], tvd=[], rop=[], wob=[], rpm=[], tor=[], flow=[], sppPsi=[];
+     const flowC = flowPick ? flowPick.mnemonic : null;
+     const sppC  = sppPick ? sppPick.mnemonic : null;
+     const sppUnit = sppPick ? (sppPick.unitRaw||'') : '';
+     const sppUnitN = normalize(sppUnit);
+     const sppIsBar = sppUnitN.includes('bar') || normalize(sppC||'')==='pwpa';
+
+     for(const r of rows){
+       const d=r[idx[depthC]];
+       const ro=r[idx[ropC]];
+       const wo=r[idx[wobC]];
+       if(!Number.isFinite(d) || !Number.isFinite(ro) || !Number.isFinite(wo)) continue;
+       md.push(d);
+       tvd.push(tvdC && (tvdC in idx) ? r[idx[tvdC]] : d);
+       rop.push(Math.max(ro,0));
+       wob.push(wo);
+       const rv = rpmPick && (rpmPick.mnemonic in idx) ? r[idx[rpmPick.mnemonic]] : 120;
+       rpm.push(Number.isFinite(rv)?Math.max(rv,0):120);
+       const tv = tqPick && (tqPick.mnemonic in idx) ? r[idx[tqPick.mnemonic]] : 1;
+       tor.push(Number.isFinite(tv)?Math.max(tv,0):1);
+       if(flowC && (flowC in idx)){
+         const fl=r[idx[flowC]];
+         flow.push(Number.isFinite(fl)?Math.max(fl,0):null);
+       } else flow.push(null);
+       if(sppC && (sppC in idx)){
+         const sp=r[idx[sppC]];
+         if(Number.isFinite(sp)){
+           const spPsi = sppIsBar ? (sp*PSI_PER_BAR) : sp;
+           sppPsi.push(Math.max(spPsi,0));
+         } else sppPsi.push(null);
+       } else sppPsi.push(null);
+     }
+
+     if(md.length < 50){ if(DEBUG) appendMsg(`Muy pocos datos válidos en ${file.name}\n`); continue; }
+     const _newObj = {
+       name: wellName,
+       enabled: true,
+       md, tvd,
+       rop, wob,
+       rpm, tor,
+       flow,
+       sppPsi,
+       sppBar: sppPsi.map(v=>Number.isFinite(v) ? (v/PSI_PER_BAR) : null)
+     };
+ // Merge if this well already exists (multiple LAS segments)
+ if(drillingByWell[wellName]){
+   drillingByWell[wellName] = mergeDrilling(drillingByWell[wellName], _newObj);
+ } else {
+   drillingByWell[wellName] = _newObj;
+ }
+     continue;
+   }
+
+   if(hasLWD){
+     if(!lwdByWell[wellName]) lwdByWell[wellName] = { name: wellName, files: [] };
+     const md=[], tvd=[], gr=[], rt=[], rhob=[], nphi=[];
+     const tvdMnemonic = tvdC && (tvdC in idx) ? tvdC : null;
+     const grC = grPick ? grPick.mnemonic : null;
+     const rtC = rtPick ? rtPick.mnemonic : null;
+     const rhobC = rhobPick ? rhobPick.mnemonic : null;
+     const nphiC = nphiPick ? nphiPick.mnemonic : null;
+     const NULLVAL = -999.25;
+     const fix=v => (Number.isFinite(v) && v !== NULLVAL) ? v : null;
+
+     for(const r of rows){
+       const d=r[idx[depthC]];
+       if(!Number.isFinite(d)) continue;
+       md.push(d);
+       tvd.push(tvdMnemonic ? r[idx[tvdMnemonic]] : d);
+       gr.push(grC && (grC in idx) ? fix(r[idx[grC]]) : null);
+       rt.push(rtC && (rtC in idx) ? fix(r[idx[rtC]]) : null);
+       rhob.push(rhobC && (rhobC in idx) ? fix(r[idx[rhobC]]) : null);
+       nphi.push(nphiC && (nphiC in idx) ? fix(r[idx[nphiC]]) : null);
+     }
+
+     if(md.length < 50){ if(DEBUG) appendMsg(`Muy pocos datos LWD válidos en ${file.name}\n`); continue; }
+     // =====================
+// LWD LOAD DEBUG (always fires)
+// =====================
+let _gt0 = 0;
+let _gt0_shallow = 0;
+let _mdMin = Infinity;
+let _mdMax = -Infinity;
+for(let _i=0; _i<md.length; _i++){
+  const _d = md[_i];
+  const _g = gr[_i];
+  if(Number.isFinite(_d)){
+    _mdMin = Math.min(_mdMin, _d);
+    _mdMax = Math.max(_mdMax, _d);
+    if(Number.isFinite(_g) && _g > 0){
+      _gt0++;
+      if(_d < 2243) _gt0_shallow++;
+    }
+  }
+}
+console.log('[LWD LOAD DEBUG]', wellName,
+  'file:', file.name,
+  'GR > 0:', _gt0,
+  'GR > 0 with MD < 2243:', _gt0_shallow,
+  'MD range:', _mdMin, '-', _mdMax);
+
+lwdByWell[wellName].files.push({ source: file.name, md, tvd, gr, rt, rhob, nphi });
+     continue;
+   }
+
+  }catch(err){ if(DEBUG) appendMsg(`Error leyendo ${file.name}: ${err.message}\n`); }
+ }
+
+ const surveyStats = applySurveyTVD(drillingByWell, lwdByWell);
+ wells = Object.values(drillingByWell);
+ renderWellList();
+ const drillingCount = wells.length;
+ const lwdCount = Object.keys(lwdByWell).length;
+ const lwdFilesCount = Object.values(lwdByWell).reduce((s,w)=>s+(w.files?w.files.length:0),0);
+
+ // Warn if any survey doesn't start from surface (MD[0] > 50m → likely sidetrack KOP only)
+ const shallowThreshold = 50;
+ const partialSurveys = Object.values(surveyByWell).filter(s => s.md && s.md.length>0 && s.md[0] > shallowThreshold);
+ if(partialSurveys.length > 0){
+   setMsg(`⚠ TVDRT WARNING: ${partialSurveys.length} survey(s) do not start from surface — ${partialSurveys.map(s=>s.name+' (MD[0]='+s.md[0].toFixed(0)+'m)').join(', ')}.\nTVDRT is computed RELATIVE to the first survey station, NOT absolute from the rotary table.\nTo get correct absolute TVDRT, provide full surveys starting from MD=0.`);
+ } else {
+   setMsg('');
+ }
+
+ if(!wells.length){
+   setStatus(`Status: loaded 0 drilling wells, ${lwdCount} LWD wells (${lwdFilesCount} LWD files)\nNo drilling data to plot`);
+   Plotly.purge('plotDP'); Plotly.purge('plotMSE');
+ } else {
+   setStatus(`Status: loaded ${drillingCount} drilling wells, ${lwdCount} LWD wells (${lwdFilesCount} LWD files)
+Survey wells: ${surveyStats?surveyStats.surveyWells:0} | TVDRT applied -> Drilling: ${surveyStats?surveyStats.drillApplied:0}, LWD: ${surveyStats?surveyStats.lwdApplied:0}`);
+   recalculateAndPlot();
+ }
+});
+
+function recalculateAndPlot(){
+ const active=wells.filter(w=>w.enabled);
+ if(!active.length){ setStatus('Status: no wells selected'); Plotly.purge('plotDP'); Plotly.purge('plotMSE'); Plotly.purge('plotLWD'); return; }
+ recalcDrilling(active, {depthModeSel: depthMode.value});
+ // Always update MSE tab (uses Plotly.react which preserves legend state)
+ try{ recalcMSETab(active, {depthModeSel: depthMode.value}); }catch(e){}
+ try{ if(lwdByWell && Object.keys(lwdByWell).length){ recalcLWDTab(active, {depthModeSel: depthMode.value}); } }catch(e){}
+}
+
+function getDepthIndicesNoClip(depthArr){
+ const idx=[];
+ for(let i=0;i<depthArr.length;i++){ const z=depthArr[i]; if(Number.isFinite(z)) idx.push(i);} 
+ return idx.length?idx:[...Array(depthArr.length).keys()];
+}
+
+function getDepthIndices(depthArr){
+  const zmin=parseFloat(zMin.value);
+  const zmax=parseFloat(zMax.value);
+  const hasFilter = Number.isFinite(zmin) && Number.isFinite(zmax) && zmin < zmax;
+  const idxToUse=[];
+  for(let i=0;i<depthArr.length;i++){
+    const z=depthArr[i];
+    if(!Number.isFinite(z)) continue;
+    if(hasFilter && z<zmin) continue;
+    if(hasFilter && z>zmax) continue;
+    idxToUse.push(i);
+  }
+  // If filter is active and no data falls in range, return empty (don't silently show all data)
+  // If no filter, return all valid indices
+  if(hasFilter) return idxToUse;
+  return idxToUse.length ? idxToUse : [...Array(depthArr.length).keys()];
+}
+
+
+// =============================
+// LWD tab plotting
+// =============================
+function recalcLWDTab(active, wsInfo){
+ // Depth mode follows the main Depth ref selector (MD/TVDRT)
+ const depthModeSel = depthMode.value;
+ if(!lwdByWell){ Plotly.purge('plotLWD'); return; }
+
+ // Curve toggles
+ const show = {
+  gr: document.getElementById('lwdGrOn') ? document.getElementById('lwdGrOn').checked : true,
+  res: document.getElementById('lwdResOn') ? document.getElementById('lwdResOn').checked : true,
+  den: document.getElementById('lwdDenOn') ? document.getElementById('lwdDenOn').checked : true,
+  neu: document.getElementById('lwdNeuOn') ? document.getElementById('lwdNeuOn').checked : true
+ };
+
+ // Ranges (RES is log-scale; NEU is reversed)
+ const grMinEl=document.getElementById('lwdGrMin'), grMaxEl=document.getElementById('lwdGrMax');
+ const resMinEl=document.getElementById('lwdResMin'), resMaxEl=document.getElementById('lwdResMax');
+ const denMinEl=document.getElementById('lwdDenMin'), denMaxEl=document.getElementById('lwdDenMax');
+ const neuMinEl=document.getElementById('lwdNeuMin'), neuMaxEl=document.getElementById('lwdNeuMax');
+
+ const ranges = {
+  gr: [parseFloat(grMinEl?.value), parseFloat(grMaxEl?.value)],
+  res: [parseFloat(resMinEl?.value), parseFloat(resMaxEl?.value)],
+  den: [parseFloat(denMinEl?.value), parseFloat(denMaxEl?.value)],
+  neu: [parseFloat(neuMinEl?.value), parseFloat(neuMaxEl?.value)]
+ };
+ // Defaults / sanity
+ if(!Number.isFinite(ranges.gr[0])) ranges.gr[0]=0;
+ if(!Number.isFinite(ranges.gr[1]) || ranges.gr[1] <= ranges.gr[0]) ranges.gr[1]=150;
+ if(!Number.isFinite(ranges.den[0])) ranges.den[0]=1.8;
+ if(!Number.isFinite(ranges.den[1]) || ranges.den[1] <= ranges.den[0]) ranges.den[1]=2.8;
+ if(!Number.isFinite(ranges.neu[0])) ranges.neu[0]=0;
+ if(!Number.isFinite(ranges.neu[1]) || ranges.neu[1] <= ranges.neu[0]) ranges.neu[1]=0.6;
+ if(!Number.isFinite(ranges.res[0]) || ranges.res[0] <= 0) ranges.res[0]=0.2;
+ if(!Number.isFinite(ranges.res[1]) || ranges.res[1] <= ranges.res[0]) ranges.res[1]=2000;
+
+ // Build enabled curves list
+ const curves=[];
+ if(show.gr) curves.push({key:'gr', dataKey:'gr', label:'GR', color:'#2ca02c', range:ranges.gr, axisType:'linear'});
+ if(show.res) curves.push({key:'res', dataKey:'rt', label:'RES', color:'#1f77b4', range:ranges.res, axisType:'log'});
+ if(show.den) curves.push({key:'den', dataKey:'rhob', label:'DEN', color:'#ff7f0e', range:ranges.den, axisType:'linear'});
+ if(show.neu) curves.push({key:'neu', dataKey:'nphi', label:'NEU', color:'#9467bd', range:ranges.neu, axisType:'linear'});
+ if(!curves.length){ Plotly.purge('plotLWD'); return; }
+
+ const perWell=[];
+ let yMin=Infinity, yMax=-Infinity;
+ for(const w of active){
+  const pack=lwdByWell[w.name];
+  if(!pack || !pack.files || !pack.files.length) continue;
+  // --- MERGE ALL LWD files for this well (USED FOR PLOTTING) ---
+ // We merge by concatenating samples and sorting by MD.
+ let mdM=[], tvdM=[], grM=[], rtM=[], rhobM=[], nphiM=[];
+ for(const f0 of pack.files){
+  if(depthModeSel==='TVD'){ try{ ensureTvdForObj(f0, w.name); }catch(e){} }
+  const n=f0.md?f0.md.length:0;
+  for(let i=0;i<n;i++){
+   const d=f0.md[i];
+   if(!Number.isFinite(d)) continue;
+   mdM.push(d);
+   tvdM.push((f0.tvd && Number.isFinite(f0.tvd[i])) ? f0.tvd[i] : d);
+   grM.push(f0.gr?.[i] ?? null);
+   rtM.push(f0.rt?.[i] ?? null);
+   rhobM.push(f0.rhob?.[i] ?? null);
+   nphiM.push(f0.nphi?.[i] ?? null);
+  }
+ }
+ const ord = mdM.map((v,i)=>i).sort((a,b)=>mdM[a]-mdM[b]);
+ const md = ord.map(i=>mdM[i]);
+ const tvd = ord.map(i=>tvdM[i]);
+ const gr = ord.map(i=>grM[i]);
+ const rt = ord.map(i=>rtM[i]);
+ const rhob = ord.map(i=>rhobM[i]);
+ const nphi = ord.map(i=>nphiM[i]);
+ const fMerged = { source:'MERGED', md, tvd, gr, rt, rhob, nphi };
+ const depthArr=(depthModeSel==='TVD') ? tvd : md;
+ const useIdx=getDepthIndicesNoClip(depthArr);
+ // track global y extents for this well
+ useIdx.forEach(i=>{ const z=depthArr[i]; if(Number.isFinite(z)){ yMin=Math.min(yMin,z); yMax=Math.max(yMax,z);} });
+ perWell.push({name:w.name, f:fMerged, depthArr, useIdx});
+ }
+ if(!perWell.length){ Plotly.purge('plotLWD'); return; }
+
+ // LWD must always use its own depth range (ignore global zMin/zMax)
+ // Recompute from ALL perWell entries to avoid order-dependent clipping
+ yMin = Infinity; yMax = -Infinity;
+ for(const pw of perWell){
+  for(const z of pw.depthArr){
+   if(Number.isFinite(z)){ yMin=Math.min(yMin,z); yMax=Math.max(yMax,z);}
+  }
+ }
+ const yRange=[yMax,yMin];
+
+// =====================
+// LWD POST-MERGE DEBUG (from MERGED dataset used for plotting)
+// =====================
+let PM_gt0=0, PM_lt0=0, PM_total=0;
+for(const pw of perWell){
+ const mdA=pw.f.md, grA=pw.f.gr;
+ for(let i=0;i<mdA.length;i++){
+  const d=mdA[i], g=grA[i];
+  if(Number.isFinite(d) && d<2243 && Number.isFinite(g)){
+   PM_total++;
+   if(g>0) PM_gt0++;
+   if(g<0) PM_lt0++;
+  }
+ }
+}
+console.log('[LWD POST-MERGE DEBUG]', 'GR > 0 with MD < 2243:', PM_gt0, 'GR < 0 with MD < 2243:', PM_lt0, 'TOTAL finite GR with MD < 2243:', PM_total);
+
+ const nW=perWell.length;
+ const traces=[];
+ const layout={ title:'', grid:{rows:1, columns:nW, pattern:'independent'}, showlegend:true,
+  legend:{orientation:'h', y:1.25, x:0, font:{size:11}, groupclick:'togglegroup'},
+  margin:{l:90,r:25,t:80,b:45}, annotations:[] };
+
+ // Force GR as base axis when available (LWD invariant)
+ let baseCurve = curves.find(c => c.key === 'gr') || curves[0];
+ let nextXNum=nW+1;
+ for(let wi=0; wi<nW; wi++){
+  const pw=perWell[wi];
+  const xBase='x'+(wi===0?'':String(wi+1));
+  const yBase='y'+(wi===0?'':String(wi+1));
+  layout[layoutKey(yBase)]={ range:yRange, autorange:false, showgrid:false, zeroline:false, showticklabels:(wi===0), ticks:(wi===0?'outside':'') };
+
+  // Base x-axis
+  if(baseCurve.axisType==='log'){
+   layout[layoutKey(xBase)]={
+    type:'log',
+    range:[Math.log10(baseCurve.range[0]), Math.log10(baseCurve.range[1])],
+    autorange:false,
+    showgrid:true, zeroline:false,
+    showticklabels:true, ticks:'outside'
+   };
+  } else {
+   layout[layoutKey(xBase)]={
+    type:'linear',
+    range:(baseCurve.key==='neu') ? [baseCurve.range[1], baseCurve.range[0]] : baseCurve.range,
+    autorange:false,
+    showgrid:true, zeroline:false,
+    showticklabels:true, ticks:'outside'
+   };
+  }
+
+  layout.annotations.push({ text:pw.name, xref:xBase+' domain', yref:'paper', x:0.5, y:1.08, showarrow:false, font:{size:12,color:'#111'} });
+
+  const axisFor={};
+  axisFor[baseCurve.key]=xBase;
+
+  // Overlay axes for remaining enabled curves
+  for(let ci=1; ci<curves.length; ci++){
+   const c=curves[ci];
+   const xId='x'+String(nextXNum++);
+   axisFor[c.key]=xId;
+   const ax={ overlaying:xBase, anchor:yBase, showgrid:false, zeroline:false, showticklabels:false, ticks:'', side:'top' };
+   if(c.axisType==='log'){
+    ax.type='log';
+    ax.range=[Math.log10(c.range[0]), Math.log10(c.range[1])];
+    ax.autorange=false;
+   } else {
+    ax.type='linear';
+    ax.range = (c.key==='neu') ? [c.range[1], c.range[0]] : c.range;
+    ax.autorange=false;
+   }
+   layout[layoutKey(xId)]=ax;
+  }
+
+  for(const c of curves){
+   const series=pw.f[c.dataKey];
+   if(!series || !series.length) continue;
+   const x=[], y=[], cd=[];
+   for(const i of pw.useIdx){
+    const z=pw.depthArr[i];
+    const v=series[i];
+    if(!Number.isFinite(z) || !Number.isFinite(v)) continue;
+    if(c.axisType==='log' && v<=0) continue;
+    x.push(v); y.push(z); cd.push([pw.f.md[i], (pw.f.tvd&&Number.isFinite(pw.f.tvd[i])?pw.f.tvd[i]:pw.f.md[i])]);
+   }
+   if(!x.length) continue;
+   traces.push({
+    x, y,
+    mode:'lines',
+    line:{width:1.2, color:c.color},
+    name:c.label,
+    legendgroup:c.key,
+    showlegend:(wi===0),
+    xaxis: axisFor[c.key],
+    yaxis: yBase,
+    customdata: cd,
+ hovertemplate: pw.name + '<br>' + c.label + ': %{x:.3g}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'
+   });
+  }
+ }
+ Plotly.newPlot('plotLWD', traces, layout, {responsive:true});
+}
+</script>
+</body>
+</html>
