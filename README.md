@@ -53,8 +53,9 @@ Since the application is built entirely on standard client-side web technologies
 
 1. **Clone this repository to your local machine:**
    Run the following command in your terminal:
-   git clone [https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git](https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git)
-
+```bash
+git clone https://github.com/Pablodf82/Multi-Well_Logs_Viewer.git
+```
 2. **Launch the Interface:**
    Go to your local project folder, locate the index.html file, and open it directly by double-clicking it. It will initialize instantly.
    *(Note: Successfully tested and verified on Microsoft Edge. Compatibility with other browsers has not been tested yet).*
